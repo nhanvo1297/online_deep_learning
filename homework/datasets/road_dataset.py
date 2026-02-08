@@ -39,14 +39,12 @@ class RoadDataset(Dataset):
                 ]
             )
         elif transform_pipeline == "aug":
-            # Augmented pipeline with random transforms
+            # Augmented pipeline with random horizontal flip
             xform = road_transforms.Compose(
                 [
                     road_transforms.ImageLoader(self.episode_path),
                     road_transforms.DepthLoader(self.episode_path),
                     road_transforms.TrackProcessor(self.track),
-                    road_transforms.RandomRotation(5),  # Small rotation for road data
-                    road_transforms.RandomColorJitter(brightness=0.1, contrast=0.1),
                     road_transforms.RandomHorizontalFlip(p=0.5),
                 ]
             )
