@@ -25,9 +25,12 @@ class ClassificationLoss(nn.Module):
 
 # Loss function for detection (segmentation + depth)
 class DetectionLoss(nn.Module):
-    def __init__(self, lambda_depth: float = 0.1):
+    def __init__(self, lambda_depth: float = 0.2):
         super().__init__()
-        self.segmentation_loss = nn.CrossEntropyLoss()
+        # Weight classes: background=1.0, left_lane=2.0, right_lane=2.0
+        # This penalizes misclassification of lanes more heavily
+        class_weights = torch.tensor([1.0, 2.0, 2.0])
+        self.segmentation_loss = nn.CrossEntropyLoss(weight=class_weights)
         self.depth_loss = nn.L1Loss()
         self.lambda_depth = lambda_depth
 
