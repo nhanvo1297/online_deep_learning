@@ -22,6 +22,33 @@ class ClassificationLoss(nn.Module):
         """
         return self.loss_fn(logits, target)
 
+
+# Loss function for detection (segmentation + depth)
+class DetectionLoss(nn.Module):
+    def __init__(self, lambda_depth: float = 0.1):
+        super().__init__()
+        self.segmentation_loss = nn.CrossEntropyLoss()
+        self.depth_loss = nn.L1Loss()
+        self.lambda_depth = lambda_depth
+
+    def forward(
+        self, 
+        logits: torch.Tensor, 
+        depth: torch.Tensor,
+        target_logits: torch.Tensor,
+        target_depth: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        Args:
+            logits: (b, num_classes, h, w) segmentation logits
+            depth: (b, h, w) predicted depth
+            target_logits: (b, h, w) target segmentation labels
+            target_depth: (b, h, w) target depth
+        """
+        seg_loss = self.segmentation_loss(logits, target_logits)
+        depth_loss_val = self.depth_loss(depth, target_depth)
+        return seg_loss + self.lambda_depth * depth_loss_val
+
 class Classifier(nn.Module):
     def __init__(
         self,
@@ -103,8 +130,36 @@ class Detector(torch.nn.Module):
         self.register_buffer("input_mean", torch.as_tensor(INPUT_MEAN))
         self.register_buffer("input_std", torch.as_tensor(INPUT_STD))
 
-        # TODO: implement
-        pass
+        # Down-sampling blocks
+        self.down1 = nn.Sequential(
+            nn.Conv2d(in_channels, 16, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(inplace=True),
+            nn.BatchNorm2d(16)
+        )
+        
+        self.down2 = nn.Sequential(
+            nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(inplace=True),
+            nn.BatchNorm2d(32)
+        )
+        
+        # Up-sampling blocks
+        self.up1 = nn.Sequential(
+            nn.ConvTranspose2d(32, 16, kernel_size=4, stride=2, padding=1),
+            nn.ReLU(inplace=True),
+            nn.BatchNorm2d(16)
+        )
+        
+        self.up2 = nn.Sequential(
+            nn.ConvTranspose2d(16, 16, kernel_size=4, stride=2, padding=1),
+            nn.ReLU(inplace=True),
+            nn.BatchNorm2d(16)
+        )
+        
+        # Output heads
+        self.segmentation_head = nn.Conv2d(16, num_classes, kernel_size=1)
+        self.depth_head = nn.Conv2d(16, 1, kernel_size=1)
+        
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
@@ -119,12 +174,21 @@ class Detector(torch.nn.Module):
                 - logits (b, num_classes, h, w)
                 - depth (b, h, w)
         """
-        # optional: normalizes the input
+        # Normalize the input
         z = (x - self.input_mean[None, :, None, None]) / self.input_std[None, :, None, None]
 
-        # TODO: replace with actual forward pass
-        logits = torch.randn(x.size(0), 3, x.size(2), x.size(3))
-        raw_depth = torch.rand(x.size(0), x.size(2), x.size(3))
+        # Down-sampling
+        z = self.down1(z)  # (b, 16, h/2, w/2)
+        z = self.down2(z)  # (b, 32, h/4, w/4)
+        
+        # Up-sampling
+        z = self.up1(z)    # (b, 16, h/2, w/2)
+        z = self.up2(z)    # (b, 16, h, w)
+        
+        # Output heads
+        logits = self.segmentation_head(z)  # (b, 3, h, w)
+        raw_depth = self.depth_head(z)      # (b, 1, h, w)
+        raw_depth = raw_depth.squeeze(1)    # (b, h, w)
 
         return logits, raw_depth
 
