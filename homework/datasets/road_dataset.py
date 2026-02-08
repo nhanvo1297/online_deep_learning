@@ -39,7 +39,17 @@ class RoadDataset(Dataset):
                 ]
             )
         elif transform_pipeline == "aug":
-            pass
+            # Augmented pipeline with random transforms
+            xform = road_transforms.Compose(
+                [
+                    road_transforms.ImageLoader(self.episode_path),
+                    road_transforms.DepthLoader(self.episode_path),
+                    road_transforms.TrackProcessor(self.track),
+                    road_transforms.RandomRotation(5),  # Small rotation for road data
+                    road_transforms.RandomColorJitter(brightness=0.1, contrast=0.1),
+                    road_transforms.RandomHorizontalFlip(p=0.5),
+                ]
+            )
 
         if xform is None:
             raise ValueError(f"Invalid transform {transform_pipeline} specified!")

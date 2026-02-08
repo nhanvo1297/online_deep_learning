@@ -40,8 +40,9 @@ def train(
     model = model.to(device)
     model.train()
 
-    train_data = load_data("drive_data/train", shuffle=True, batch_size=batch_size, num_workers=0)
-    val_data = load_data("drive_data/val", shuffle=False, batch_size=batch_size, num_workers=0)
+    # Use augmentation for training data
+    train_data = load_data("drive_data/train", transform_pipeline="aug", shuffle=True, batch_size=batch_size, num_workers=0)
+    val_data = load_data("drive_data/val", transform_pipeline="default", shuffle=False, batch_size=batch_size, num_workers=0)
 
     # create loss function and optimizer
     loss_func = DetectionLoss(lambda_depth=0.1)
