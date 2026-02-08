@@ -29,8 +29,8 @@ class DetectionLoss(nn.Module):
         super().__init__()
         # Weight classes: background=1.0, left_lane=2.0, right_lane=2.0
         # This penalizes misclassification of lanes more heavily
-        class_weights = torch.tensor([1.0, 2.0, 2.0])
-        self.segmentation_loss = nn.CrossEntropyLoss(weight=class_weights)
+        self.register_buffer("class_weights", torch.tensor([1.0, 2.0, 2.0]))
+        self.segmentation_loss = nn.CrossEntropyLoss(weight=self.class_weights)
         self.depth_loss = nn.L1Loss()
         self.lambda_depth = lambda_depth
 
