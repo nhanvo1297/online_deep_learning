@@ -46,6 +46,7 @@ def train(
 
     # create loss function and optimizer
     loss_func = DetectionLoss(lambda_depth=0.1)
+    loss_func = loss_func.to(device)  # Move loss function to same device as model
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
     global_step = 0
