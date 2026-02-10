@@ -42,4 +42,4 @@ classification_data/
 drive_data/
 
 # Model weights
-*.th
+
