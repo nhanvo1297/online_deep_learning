@@ -27,9 +27,9 @@ class ClassificationLoss(nn.Module):
 class DetectionLoss(nn.Module):
     def __init__(self, lambda_depth: float = 0.2):
         super().__init__()
-        # Weight classes: background=1.0, left_lane=3.0, right_lane=3.0
-        # Penalizes lane misclassification more heavily
-        self.register_buffer("class_weights", torch.tensor([1.0, 3.0, 3.0]))
+        # Weight classes: background=1.0, left_lane=5.0, right_lane=5.0
+        # Increased weighting to penalize lane misclassification more heavily
+        self.register_buffer("class_weights", torch.tensor([1.0, 5.0, 5.0]))
         self.segmentation_loss = nn.CrossEntropyLoss(weight=self.class_weights)
         self.depth_loss = nn.L1Loss()
         self.lambda_depth = lambda_depth
@@ -133,49 +133,49 @@ class Detector(torch.nn.Module):
         self.register_buffer("input_mean", torch.as_tensor(INPUT_MEAN))
         self.register_buffer("input_std", torch.as_tensor(INPUT_STD))
 
-        # Down-sampling blocks (increased channels: 16→32 and 32→64)
+        # Down-sampling blocks (increased channels: 32→64 and 64→128)
         self.down1 = nn.Sequential(
-            nn.Conv2d(in_channels, 32, kernel_size=3, stride=2, padding=1),
-            nn.ReLU(inplace=True),
-            nn.BatchNorm2d(32)
-        )
-        
-        self.down2 = nn.Sequential(
-            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1),
+            nn.Conv2d(in_channels, 64, kernel_size=3, stride=2, padding=1),
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(64)
         )
         
+        self.down2 = nn.Sequential(
+            nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(inplace=True),
+            nn.BatchNorm2d(128)
+        )
+        
         # Up-sampling blocks with skip connections
-        # After up1: concatenate with down1 features (32 channels) -> 96 total channels
+        # After up1: concatenate with down1 features (64 channels) -> 128 total channels
         self.up1 = nn.Sequential(
-            nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1),
+            nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1),
             nn.ReLU(inplace=True),
-            nn.BatchNorm2d(32)
+            nn.BatchNorm2d(64)
         )
-        # Merge down1 skip (32 channels) with up1 output (32 channels) -> 64 channels
+        # Merge down1 skip (64 channels) with up1 output (64 channels) -> 128 channels
         self.merge1 = nn.Sequential(
-            nn.Conv2d(64, 32, kernel_size=3, padding=1),
+            nn.Conv2d(128, 64, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
-            nn.BatchNorm2d(32)
+            nn.BatchNorm2d(64)
         )
         
-        # After up2: concatenate with original input features (3 channels) -> 35 total channels
+        # After up2: concatenate with original input features (3 channels) -> 67 total channels
         self.up2 = nn.Sequential(
-            nn.ConvTranspose2d(32, 32, kernel_size=4, stride=2, padding=1),
+            nn.ConvTranspose2d(64, 64, kernel_size=4, stride=2, padding=1),
             nn.ReLU(inplace=True),
-            nn.BatchNorm2d(32)
+            nn.BatchNorm2d(64)
         )
-        # Merge input skip (3 channels) with up2 output (32 channels) -> 35 channels
+        # Merge input skip (3 channels) with up2 output (64 channels) -> 67 channels
         self.merge2 = nn.Sequential(
-            nn.Conv2d(35, 32, kernel_size=3, padding=1),
+            nn.Conv2d(67, 64, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
-            nn.BatchNorm2d(32)
+            nn.BatchNorm2d(64)
         )
         
-        # Output heads (32 channels instead of 16)
-        self.segmentation_head = nn.Conv2d(32, num_classes, kernel_size=1)
-        self.depth_head = nn.Conv2d(32, 1, kernel_size=1)
+        # Output heads (64 channels instead of 32)
+        self.segmentation_head = nn.Conv2d(64, num_classes, kernel_size=1)
+        self.depth_head = nn.Conv2d(64, 1, kernel_size=1)
         
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -195,19 +195,19 @@ class Detector(torch.nn.Module):
         z = (x - self.input_mean[None, :, None, None]) / self.input_std[None, :, None, None]
 
         # Down-sampling (save intermediate features for skip connections)
-        down1_feat = self.down1(z)  # (b, 16, h/2, w/2)
-        down2_feat = self.down2(down1_feat)  # (b, 32, h/4, w/4)
+        down1_feat = self.down1(z)  # (b, 64, h/2, w/2)
+        down2_feat = self.down2(down1_feat)  # (b, 128, h/4, w/4)
         
         # Up-sampling with skip connections
-        up1_feat = self.up1(down2_feat)  # (b, 16, h/2, w/2)
+        up1_feat = self.up1(down2_feat)  # (b, 64, h/2, w/2)
         # Concatenate with down1 skip connection
-        up1_feat = torch.cat([up1_feat, down1_feat], dim=1)  # (b, 32, h/2, w/2)
-        up1_feat = self.merge1(up1_feat)  # (b, 16, h/2, w/2)
+        up1_feat = torch.cat([up1_feat, down1_feat], dim=1)  # (b, 128, h/2, w/2)
+        up1_feat = self.merge1(up1_feat)  # (b, 64, h/2, w/2)
         
-        up2_feat = self.up2(up1_feat)  # (b, 16, h, w)
+        up2_feat = self.up2(up1_feat)  # (b, 64, h, w)
         # Concatenate with input skip connection
-        up2_feat = torch.cat([up2_feat, z], dim=1)  # (b, 19, h, w)
-        up2_feat = self.merge2(up2_feat)  # (b, 16, h, w)
+        up2_feat = torch.cat([up2_feat, z], dim=1)  # (b, 67, h, w)
+        up2_feat = self.merge2(up2_feat)  # (b, 64, h, w)
         
         # Output heads
         logits = self.segmentation_head(up2_feat)  # (b, 3, h, w)
