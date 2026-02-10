@@ -8,6 +8,7 @@ import torch.utils.tensorboard as tb
 
 from .models import DetectionLoss, load_model, save_model
 from .datasets.road_dataset import load_data
+from .metrics import DetectionMetric
 
 
 def train(
@@ -80,6 +81,7 @@ def train(
         with torch.inference_mode():
             model.eval()
             val_loss = 0
+            val_metric = DetectionMetric(num_classes=3)
 
             for batch in val_data:
                 img = batch["image"].to(device)
@@ -90,18 +92,29 @@ def train(
                 loss = loss_func(logits, depth, target_logits, target_depth)
                 val_loss += loss.item()
 
+                # Compute metrics
+                pred_logits = logits.argmax(dim=1)  # (b, h, w)
+                val_metric.add(pred_logits, target_logits, depth, target_depth)
+
             avg_val_loss = val_loss / len(val_data)
+            val_results = val_metric.compute()
 
         # Log metrics
         logger.add_scalar("train_loss", avg_train_loss, epoch)
         logger.add_scalar("val_loss", avg_val_loss, epoch)
+        logger.add_scalar("val_iou", val_results["iou"], epoch)
+        logger.add_scalar("val_depth_error", val_results["abs_depth_error"], epoch)
+        logger.add_scalar("val_lane_depth_error", val_results["tp_depth_error"], epoch)
 
         # Print on first, last, every 10th epoch
         if epoch == 0 or epoch == num_epoch - 1 or (epoch + 1) % 10 == 0:
             print(
                 f"Epoch {epoch + 1:2d} / {num_epoch:2d}: "
                 f"train_loss={avg_train_loss:.4f} "
-                f"val_loss={avg_val_loss:.4f}"
+                f"val_loss={avg_val_loss:.4f} "
+                f"iou={val_results['iou']:.4f} "
+                f"depth_err={val_results['abs_depth_error']:.4f} "
+                f"lane_depth_err={val_results['tp_depth_error']:.4f}"
             )
 
     # save and overwrite the model in the root directory for grading
