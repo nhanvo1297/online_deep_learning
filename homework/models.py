@@ -133,47 +133,74 @@ class Detector(torch.nn.Module):
         self.register_buffer("input_mean", torch.as_tensor(INPUT_MEAN))
         self.register_buffer("input_std", torch.as_tensor(INPUT_STD))
 
-        # Down-sampling blocks (increased channels: 32→64 and 64→128)
+        # Down-sampling blocks (3 levels: 64→128→256)
         self.down1 = nn.Sequential(
             nn.Conv2d(in_channels, 64, kernel_size=3, stride=2, padding=1),
             nn.ReLU(inplace=True),
-            nn.BatchNorm2d(64)
+            nn.BatchNorm2d(64),
+            nn.Dropout(0.2)
         )
         
         self.down2 = nn.Sequential(
             nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1),
             nn.ReLU(inplace=True),
-            nn.BatchNorm2d(128)
+            nn.BatchNorm2d(128),
+            nn.Dropout(0.2)
+        )
+        
+        self.down3 = nn.Sequential(
+            nn.Conv2d(128, 256, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(inplace=True),
+            nn.BatchNorm2d(256),
+            nn.Dropout(0.2)
         )
         
         # Up-sampling blocks with skip connections
-        # After up1: concatenate with down1 features (64 channels) -> 128 total channels
+        # After up1: concatenate with down2 features (128 channels) -> 384 total channels
         self.up1 = nn.Sequential(
-            nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1),
+            nn.ConvTranspose2d(256, 128, kernel_size=4, stride=2, padding=1),
             nn.ReLU(inplace=True),
-            nn.BatchNorm2d(64)
+            nn.BatchNorm2d(128),
+            nn.Dropout(0.2)
         )
-        # Merge down1 skip (64 channels) with up1 output (64 channels) -> 128 channels
+        # Merge down2 skip (128 channels) with up1 output (128 channels) -> 256 channels
         self.merge1 = nn.Sequential(
-            nn.Conv2d(128, 64, kernel_size=3, padding=1),
+            nn.Conv2d(256, 128, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
-            nn.BatchNorm2d(64)
+            nn.BatchNorm2d(128),
+            nn.Dropout(0.2)
         )
         
-        # After up2: concatenate with original input features (3 channels) -> 67 total channels
+        # After up2: concatenate with down1 features (64 channels) -> 192 total channels
         self.up2 = nn.Sequential(
+            nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1),
+            nn.ReLU(inplace=True),
+            nn.BatchNorm2d(64),
+            nn.Dropout(0.2)
+        )
+        # Merge down1 skip (64 channels) with up2 output (64 channels) -> 128 channels
+        self.merge2 = nn.Sequential(
+            nn.Conv2d(128, 64, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.BatchNorm2d(64),
+            nn.Dropout(0.2)
+        )
+        
+        # After up3: concatenate with original input features (3 channels) -> 67 total channels
+        self.up3 = nn.Sequential(
             nn.ConvTranspose2d(64, 64, kernel_size=4, stride=2, padding=1),
             nn.ReLU(inplace=True),
-            nn.BatchNorm2d(64)
+            nn.BatchNorm2d(64),
+            nn.Dropout(0.2)
         )
-        # Merge input skip (3 channels) with up2 output (64 channels) -> 67 channels
-        self.merge2 = nn.Sequential(
+        # Merge input skip (3 channels) with up3 output (64 channels) -> 67 channels
+        self.merge3 = nn.Sequential(
             nn.Conv2d(67, 64, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(64)
         )
         
-        # Output heads (64 channels instead of 32)
+        # Output heads (64 channels)
         self.segmentation_head = nn.Conv2d(64, num_classes, kernel_size=1)
         self.depth_head = nn.Conv2d(64, 1, kernel_size=1)
         
@@ -197,21 +224,27 @@ class Detector(torch.nn.Module):
         # Down-sampling (save intermediate features for skip connections)
         down1_feat = self.down1(z)  # (b, 64, h/2, w/2)
         down2_feat = self.down2(down1_feat)  # (b, 128, h/4, w/4)
+        down3_feat = self.down3(down2_feat)  # (b, 256, h/8, w/8)
         
         # Up-sampling with skip connections
-        up1_feat = self.up1(down2_feat)  # (b, 64, h/2, w/2)
-        # Concatenate with down1 skip connection
-        up1_feat = torch.cat([up1_feat, down1_feat], dim=1)  # (b, 128, h/2, w/2)
-        up1_feat = self.merge1(up1_feat)  # (b, 64, h/2, w/2)
+        up1_feat = self.up1(down3_feat)  # (b, 128, h/4, w/4)
+        # Concatenate with down2 skip connection
+        up1_feat = torch.cat([up1_feat, down2_feat], dim=1)  # (b, 256, h/4, w/4)
+        up1_feat = self.merge1(up1_feat)  # (b, 128, h/4, w/4)
         
-        up2_feat = self.up2(up1_feat)  # (b, 64, h, w)
+        up2_feat = self.up2(up1_feat)  # (b, 64, h/2, w/2)
+        # Concatenate with down1 skip connection
+        up2_feat = torch.cat([up2_feat, down1_feat], dim=1)  # (b, 128, h/2, w/2)
+        up2_feat = self.merge2(up2_feat)  # (b, 64, h/2, w/2)
+        
+        up3_feat = self.up3(up2_feat)  # (b, 64, h, w)
         # Concatenate with input skip connection
-        up2_feat = torch.cat([up2_feat, z], dim=1)  # (b, 67, h, w)
-        up2_feat = self.merge2(up2_feat)  # (b, 64, h, w)
+        up3_feat = torch.cat([up3_feat, z], dim=1)  # (b, 67, h, w)
+        up3_feat = self.merge3(up3_feat)  # (b, 64, h, w)
         
         # Output heads
-        logits = self.segmentation_head(up2_feat)  # (b, 3, h, w)
-        raw_depth = self.depth_head(up2_feat)      # (b, 1, h, w)
+        logits = self.segmentation_head(up3_feat)  # (b, 3, h, w)
+        raw_depth = self.depth_head(up3_feat)      # (b, 1, h, w)
         raw_depth = raw_depth.squeeze(1)    # (b, h, w)
 
         return logits, raw_depth
