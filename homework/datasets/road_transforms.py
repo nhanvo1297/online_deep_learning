@@ -133,7 +133,7 @@ class ImageLoader:
     def __call__(self, sample: dict):
         image_path = self.episode_path / f"{sample['_idx']:05d}_im.jpg"
         image = np.uint8(Image.open(image_path)) / 255.0
-        image = image.transpose(2, 0, 1)
+        image = image.transpose(2, 0, 1).copy()
 
         sample["image"] = image.astype(np.float32)
 
@@ -153,8 +153,8 @@ class DepthLoader(ImageLoader):
 class RandomHorizontalFlip(tv_transforms.RandomHorizontalFlip):
     def __call__(self, sample: dict):
         if np.random.rand() < self.p:
-            sample["image"] = np.flip(sample["image"], axis=2)
-            sample["track"] = np.flip(sample["track"], axis=1)
+            sample["image"] = np.flip(sample["image"], axis=2).copy()
+            sample["track"] = np.flip(sample["track"], axis=1).copy()
 
         return sample
 

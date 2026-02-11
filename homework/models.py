@@ -25,11 +25,11 @@ class ClassificationLoss(nn.Module):
 
 # Loss function for detection (segmentation + depth)
 class DetectionLoss(nn.Module):
-    def __init__(self, lambda_depth: float = 0.2):
+    def __init__(self, lambda_depth: float = 0.05):
         super().__init__()
-        # Weight classes: background=1.0, left_lane=5.0, right_lane=5.0
+        # Weight classes: background=0.5, left_lane=15.0, right_lane=15.0
         # Increased weighting to penalize lane misclassification more heavily
-        self.register_buffer("class_weights", torch.tensor([1.0, 5.0, 5.0]))
+        self.register_buffer("class_weights", torch.tensor([0.5, 15.0, 15.0]))
         self.segmentation_loss = nn.CrossEntropyLoss(weight=self.class_weights)
         self.depth_loss = nn.L1Loss()
         self.lambda_depth = lambda_depth
@@ -133,76 +133,76 @@ class Detector(torch.nn.Module):
         self.register_buffer("input_mean", torch.as_tensor(INPUT_MEAN))
         self.register_buffer("input_std", torch.as_tensor(INPUT_STD))
 
-        # Down-sampling blocks (3 levels: 64→128→256)
+        # Down-sampling blocks (3 levels: 96→192→384)
         self.down1 = nn.Sequential(
-            nn.Conv2d(in_channels, 64, kernel_size=3, stride=2, padding=1),
+            nn.Conv2d(in_channels, 96, kernel_size=3, stride=2, padding=1),
             nn.ReLU(inplace=True),
-            nn.BatchNorm2d(64),
-            nn.Dropout(0.2)
+            nn.BatchNorm2d(96),
+            nn.Dropout(0.1)
         )
         
         self.down2 = nn.Sequential(
-            nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1),
+            nn.Conv2d(96, 192, kernel_size=3, stride=2, padding=1),
             nn.ReLU(inplace=True),
-            nn.BatchNorm2d(128),
-            nn.Dropout(0.2)
+            nn.BatchNorm2d(192),
+            nn.Dropout(0.1)
         )
         
         self.down3 = nn.Sequential(
-            nn.Conv2d(128, 256, kernel_size=3, stride=2, padding=1),
+            nn.Conv2d(192, 384, kernel_size=3, stride=2, padding=1),
             nn.ReLU(inplace=True),
-            nn.BatchNorm2d(256),
-            nn.Dropout(0.2)
+            nn.BatchNorm2d(384),
+            nn.Dropout(0.1)
         )
         
         # Up-sampling blocks with skip connections
-        # After up1: concatenate with down2 features (128 channels) -> 384 total channels
+        # After up1: concatenate with down2 features (192 channels) -> 576 total channels
         self.up1 = nn.Sequential(
-            nn.ConvTranspose2d(256, 128, kernel_size=4, stride=2, padding=1),
+            nn.ConvTranspose2d(384, 192, kernel_size=4, stride=2, padding=1),
             nn.ReLU(inplace=True),
-            nn.BatchNorm2d(128),
-            nn.Dropout(0.2)
+            nn.BatchNorm2d(192),
+            nn.Dropout(0.1)
         )
-        # Merge down2 skip (128 channels) with up1 output (128 channels) -> 256 channels
+        # Merge down2 skip (192 channels) with up1 output (192 channels) -> 384 channels
         self.merge1 = nn.Sequential(
-            nn.Conv2d(256, 128, kernel_size=3, padding=1),
+            nn.Conv2d(384, 192, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
-            nn.BatchNorm2d(128),
-            nn.Dropout(0.2)
+            nn.BatchNorm2d(192),
+            nn.Dropout(0.1)
         )
         
-        # After up2: concatenate with down1 features (64 channels) -> 192 total channels
+        # After up2: concatenate with down1 features (96 channels) -> 288 total channels
         self.up2 = nn.Sequential(
-            nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1),
+            nn.ConvTranspose2d(192, 96, kernel_size=4, stride=2, padding=1),
             nn.ReLU(inplace=True),
-            nn.BatchNorm2d(64),
-            nn.Dropout(0.2)
+            nn.BatchNorm2d(96),
+            nn.Dropout(0.1)
         )
-        # Merge down1 skip (64 channels) with up2 output (64 channels) -> 128 channels
+        # Merge down1 skip (96 channels) with up2 output (96 channels) -> 192 channels
         self.merge2 = nn.Sequential(
-            nn.Conv2d(128, 64, kernel_size=3, padding=1),
+            nn.Conv2d(192, 96, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
-            nn.BatchNorm2d(64),
-            nn.Dropout(0.2)
+            nn.BatchNorm2d(96),
+            nn.Dropout(0.1)
         )
         
-        # After up3: concatenate with original input features (3 channels) -> 67 total channels
+        # After up3: concatenate with original input features (3 channels) -> 99 total channels
         self.up3 = nn.Sequential(
-            nn.ConvTranspose2d(64, 64, kernel_size=4, stride=2, padding=1),
+            nn.ConvTranspose2d(96, 96, kernel_size=4, stride=2, padding=1),
             nn.ReLU(inplace=True),
-            nn.BatchNorm2d(64),
-            nn.Dropout(0.2)
+            nn.BatchNorm2d(96),
+            nn.Dropout(0.1)
         )
-        # Merge input skip (3 channels) with up3 output (64 channels) -> 67 channels
+        # Merge input skip (3 channels) with up3 output (96 channels) -> 99 channels
         self.merge3 = nn.Sequential(
-            nn.Conv2d(67, 64, kernel_size=3, padding=1),
+            nn.Conv2d(99, 96, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
-            nn.BatchNorm2d(64)
+            nn.BatchNorm2d(96)
         )
         
-        # Output heads (64 channels)
-        self.segmentation_head = nn.Conv2d(64, num_classes, kernel_size=1)
-        self.depth_head = nn.Conv2d(64, 1, kernel_size=1)
+        # Output heads (96 channels)
+        self.segmentation_head = nn.Conv2d(96, num_classes, kernel_size=1)
+        self.depth_head = nn.Conv2d(96, 1, kernel_size=1)
         
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -222,25 +222,25 @@ class Detector(torch.nn.Module):
         z = (x - self.input_mean[None, :, None, None]) / self.input_std[None, :, None, None]
 
         # Down-sampling (save intermediate features for skip connections)
-        down1_feat = self.down1(z)  # (b, 64, h/2, w/2)
-        down2_feat = self.down2(down1_feat)  # (b, 128, h/4, w/4)
-        down3_feat = self.down3(down2_feat)  # (b, 256, h/8, w/8)
+        down1_feat = self.down1(z)  # (b, 96, h/2, w/2)
+        down2_feat = self.down2(down1_feat)  # (b, 192, h/4, w/4)
+        down3_feat = self.down3(down2_feat)  # (b, 384, h/8, w/8)
         
         # Up-sampling with skip connections
-        up1_feat = self.up1(down3_feat)  # (b, 128, h/4, w/4)
+        up1_feat = self.up1(down3_feat)  # (b, 192, h/4, w/4)
         # Concatenate with down2 skip connection
-        up1_feat = torch.cat([up1_feat, down2_feat], dim=1)  # (b, 256, h/4, w/4)
-        up1_feat = self.merge1(up1_feat)  # (b, 128, h/4, w/4)
+        up1_feat = torch.cat([up1_feat, down2_feat], dim=1)  # (b, 384, h/4, w/4)
+        up1_feat = self.merge1(up1_feat)  # (b, 192, h/4, w/4)
         
-        up2_feat = self.up2(up1_feat)  # (b, 64, h/2, w/2)
+        up2_feat = self.up2(up1_feat)  # (b, 96, h/2, w/2)
         # Concatenate with down1 skip connection
-        up2_feat = torch.cat([up2_feat, down1_feat], dim=1)  # (b, 128, h/2, w/2)
-        up2_feat = self.merge2(up2_feat)  # (b, 64, h/2, w/2)
+        up2_feat = torch.cat([up2_feat, down1_feat], dim=1)  # (b, 192, h/2, w/2)
+        up2_feat = self.merge2(up2_feat)  # (b, 96, h/2, w/2)
         
-        up3_feat = self.up3(up2_feat)  # (b, 64, h, w)
+        up3_feat = self.up3(up2_feat)  # (b, 96, h, w)
         # Concatenate with input skip connection
-        up3_feat = torch.cat([up3_feat, z], dim=1)  # (b, 67, h, w)
-        up3_feat = self.merge3(up3_feat)  # (b, 64, h, w)
+        up3_feat = torch.cat([up3_feat, z], dim=1)  # (b, 99, h, w)
+        up3_feat = self.merge3(up3_feat)  # (b, 96, h, w)
         
         # Output heads
         logits = self.segmentation_head(up3_feat)  # (b, 3, h, w)

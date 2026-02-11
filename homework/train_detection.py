@@ -41,14 +41,19 @@ def train(
     model = model.to(device)
     model.train()
 
-    # Use default pipeline to avoid augmentation issues
-    train_data = load_data("drive_data/train", shuffle=True, batch_size=batch_size, num_workers=0)
+    # Use augmentation for training, default pipeline for validation
+    train_data = load_data("drive_data/train", transform_pipeline="aug", shuffle=True, batch_size=batch_size, num_workers=0)
     val_data = load_data("drive_data/val", shuffle=False, batch_size=batch_size, num_workers=0)
 
     # create loss function and optimizer
-    loss_func = DetectionLoss(lambda_depth=0.1)
+    loss_func = DetectionLoss(lambda_depth=0.05)
     loss_func = loss_func.to(device)  # Move loss function to same device as model
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    
+    # Add learning rate scheduler to reduce LR when IoU plateaus
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode='max', factor=0.5, patience=10, min_lr=1e-6
+    )
 
     global_step = 0
 
@@ -98,6 +103,9 @@ def train(
 
             avg_val_loss = val_loss / len(val_data)
             val_results = val_metric.compute()
+            
+            # Update learning rate based on validation IoU
+            scheduler.step(val_results["iou"])
 
         # Log metrics
         logger.add_scalar("train_loss", avg_train_loss, epoch)
