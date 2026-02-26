@@ -1,3 +1,4 @@
+""" I have used GitLab Copilot for assistance. """
 import argparse
 from datetime import datetime
 from pathlib import Path
